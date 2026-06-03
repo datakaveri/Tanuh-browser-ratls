@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
-import { b64encode, b64decode, b64urlEncode, b64urlDecode } from "../src/util/base64"
-import { concat, constantTimeEqual, toHex, zeroBuffer, validateBuffer } from "../src/util/bytes"
-import { derToRaw } from "../src/util/ecdsa"
+import { b64encode, b64decode, b64urlEncode, b64urlDecode } from "../src/lib/util/base64"
+import { concat, constantTimeEqual, toHex, zeroBuffer, validateBuffer } from "../src/lib/util/bytes"
+import { derToRaw } from "../src/lib/util/ecdsa"
 
 // ── base64 ─────────────────────────────────────────────────────────────────
 

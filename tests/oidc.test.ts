@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { sha256 } from "@noble/hashes/sha256"
-import { b64urlEncode } from "../src/util/base64"
+import { b64urlEncode } from "../src/lib/util/base64"
 
 // ── Mock constants so tests are independent of the filled digest value ─────
 // vi.mock is hoisted, so the value must also be hoisted with vi.hoisted.
@@ -9,7 +9,7 @@ const { TEST_IMAGE_DIGEST } = vi.hoisted(() => ({
     TEST_IMAGE_DIGEST: "sha256:test-digest-for-unit-tests",
 }))
 
-vi.mock("../src/constants", () => ({
+vi.mock("../src/lib/constants", () => ({
     EXPECTED_IMAGE_DIGEST: TEST_IMAGE_DIGEST,
     OIDC_AUDIENCE:         "ratls-browser",
     OIDC_ISSUER:           "https://confidentialcomputing.googleapis.com",
@@ -27,7 +27,7 @@ vi.mock("jose", () => ({
 }))
 
 // Import after mocks are registered
-import { verifyOIDC } from "../src/oidc"
+import { verifyOIDC } from "../src/lib/oidc"
 import { jwtVerify } from "jose"
 
 // ── Helpers ────────────────────────────────────────────────────────────────

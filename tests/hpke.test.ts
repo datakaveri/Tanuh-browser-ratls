@@ -6,9 +6,9 @@ import {
     Aes256Gcm,
 } from "@hpke/core"
 import { sha256 } from "@noble/hashes/sha256"
-import { Session } from "../src/hpke"
-import { b64encode, b64decode } from "../src/util/base64"
-import { concat } from "../src/util/bytes"
+import { Session } from "../src/lib/hpke"
+import { b64encode, b64decode } from "../src/lib/util/base64"
+import { concat } from "../src/lib/util/bytes"
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 

@@ -3,12 +3,12 @@
 // Run with: npm run test:integration
 
 import { describe, it, expect } from "vitest"
-import { verifyBundle } from "../../src/bundle"
-import { verifyOIDCDebug } from "../../src/oidc_debug"
-import { Session } from "../../src/hpke"
-import { b64urlEncode } from "../../src/util/base64"
-import { zeroBuffer } from "../../src/util/bytes"
-import type { AttestBundle } from "../../src/types"
+import { verifyBundle } from "../../src/lib/bundle"
+import { verifyOIDCDebug } from "../../src/lib/oidc_debug"
+import { Session } from "../../src/lib/hpke"
+import { b64urlEncode } from "../../src/lib/util/base64"
+import { zeroBuffer } from "../../src/lib/util/bytes"
+import type { AttestBundle } from "../../src/lib/types"
 
 const TEE_URL = process.env["TEE_URL"] ?? "https://35.239.166.229:8443"
 

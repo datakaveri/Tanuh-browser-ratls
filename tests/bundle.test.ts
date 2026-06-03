@@ -5,7 +5,7 @@ const mockState = vi.hoisted(() => ({
     imageDigest: "sha256:deadbeef",
 }))
 
-vi.mock("../src/constants", () => ({
+vi.mock("../src/lib/constants", () => ({
     get EXPECTED_IMAGE_DIGEST() { return mockState.imageDigest },
     BUNDLE_VERSION:    "ratls-cs-v1",
     OIDC_ISSUER:       "https://confidentialcomputing.googleapis.com",
@@ -15,14 +15,14 @@ vi.mock("../src/constants", () => ({
     WORKER_TIMEOUT_MS: 30_000,
 }))
 
-vi.mock("../src/oidc", () => ({
+vi.mock("../src/lib/oidc", () => ({
     verifyOIDC: vi.fn(),
 }))
 
-import { verifyBundle } from "../src/bundle"
-import { verifyOIDC } from "../src/oidc"
-import { b64encode } from "../src/util/base64"
-import type { AttestBundle } from "../src/types"
+import { verifyBundle } from "../src/lib/bundle"
+import { verifyOIDC } from "../src/lib/oidc"
+import { b64encode } from "../src/lib/util/base64"
+import type { AttestBundle } from "../src/lib/types"
 
 // ── Test fixtures ──────────────────────────────────────────────────────────
 
