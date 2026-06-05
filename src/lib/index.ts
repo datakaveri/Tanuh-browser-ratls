@@ -88,20 +88,14 @@ export async function attestAndOpen(opts: AttestOptions): Promise<OpenedSession>
                 path,
             }))
 
-            // Encrypt in worker — plaintext transferred + zeroed inside worker
-            const { request } = await runInWorker<{
-                request: import("./types").EncryptedRequest
-            }>(
-                {
-                    type:           "encrypt",
-                    plaintext:      plaintext.buffer,
-                    aad:            aad.buffer,
-                    enclaveHpkePub: enclaveHpkePub,
-                },
-                [plaintext.buffer, aad.buffer],
-            )
+            // Encrypt with hpkeSession directly — the worker would create a NEW browser
+            // ephemeral key, making the HPKE info mismatch the X-RATLS-Browser-HPKE header.
+            // hpkeSession.encryptRequest() zeroes `plaintext` after sealing.
+            const request = await hpkeSession.encryptRequest(plaintext, aad)
 
-            const r = await fetch(new URL(path, opts.attestUrl), {
+            // When attestUrl is empty the Vite proxy handles routing via relative paths.
+            const submitUrl = opts.attestUrl ? new URL(path, opts.attestUrl).toString() : path
+            const r = await fetch(submitUrl, {
                 method:  "POST",
                 headers: {
                     "Content-Type":         "application/json",

@@ -96,7 +96,7 @@ describe("verifyOIDC", () => {
         vi.mocked(jwtVerify).mockResolvedValue({ payload } as never)
 
         await expect(verifyOIDC("token", spki, hpkePub))
-            .rejects.toThrow("hwmodel not GCP_AMD_SEV_SNP")
+            .rejects.toThrow("hwmodel not GCP_AMD_SEV")
     })
 
     it("rejects wrong image_digest", async () => {

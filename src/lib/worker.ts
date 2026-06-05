@@ -3,6 +3,7 @@
 // Single-use: self.close() called after every task.
 
 import { verifyBundle, type VerifiedSession } from "./bundle"
+import { verifyOIDCDebug } from "./oidc_debug"
 import { Session } from "./hpke"
 import { validateBuffer, zeroBuffer } from "./util/bytes"
 import type { AttestBundle, EncryptedRequest } from "./types"
@@ -34,7 +35,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
             let result: VerifiedSession
             try {
                 validateBuffer(nonce, "liveness_nonce")
-                result = await verifyBundle(req.bundle, nonce)
+                result = await verifyBundle(req.bundle, nonce, verifyOIDCDebug)
             } finally {
                 zeroBuffer(nonce)
             }

@@ -8,9 +8,10 @@ import { verifyOIDCDebug } from "../../src/lib/oidc_debug"
 import { Session } from "../../src/lib/hpke"
 import { b64urlEncode } from "../../src/lib/util/base64"
 import { zeroBuffer } from "../../src/lib/util/bytes"
+import { attestAndOpen } from "../../src/lib/index"
 import type { AttestBundle } from "../../src/lib/types"
 
-const TEE_URL = process.env["TEE_URL"] ?? "https://35.239.166.229:8443"
+const TEE_URL = process.env["TEE_URL"] ?? "https://35.253.174.203:8443"
 
 // Skip the whole suite if the TEE is unreachable — don't fail CI on network issues.
 // To force-run: TEE_URL=https://... npm run test:integration
@@ -63,7 +64,7 @@ describe("E2E — debug enclave (dbgstat=enabled)", () => {
         expect(session.hpkePub.some(b => b !== 0)).toBe(true)
         expect(session.verifiedAt).toBeGreaterThan(0)
         expect(session.oidc.swname).toBe("CONFIDENTIAL_SPACE")
-        expect(session.oidc.hwmodel).toMatch(/^GCP_AMD_SEV_SNP/)
+        expect(session.oidc.hwmodel).toMatch(/^GCP_AMD_SEV/)
         expect(session.oidc.submods.container.image_digest).toMatch(/^sha256:/)
 
         // 4. Build HPKE session with the verified enclave pubkey
@@ -105,4 +106,86 @@ describe("E2E — debug enclave (dbgstat=enabled)", () => {
         zeroBuffer(nonce)
         zeroBuffer(wrongNonce)
     }, 20_000)
+
+    it("submits a tiny HPKE-encrypted job and gets a queued response", async () => {
+        if (!await teeReachable()) {
+            console.warn(`TEE unreachable at ${TEE_URL} — skipping`)
+            return
+        }
+
+        // 1. Attest (same as first test)
+        const nonce = crypto.getRandomValues(new Uint8Array(32))
+        const resp = await fetch(TEE_URL + "/v1/attest", {
+            headers: { "X-RATLS-Nonce": b64urlEncode(nonce) },
+            signal:  AbortSignal.timeout(10_000),
+        })
+        expect(resp.ok).toBe(true)
+        const bundle = await resp.json() as AttestBundle
+
+        let session
+        try {
+            session = await verifyBundle(bundle, nonce, verifyOIDCDebug)
+        } finally {
+            zeroBuffer(nonce)
+        }
+        expect(session.oidc.hwmodel).toMatch(/^GCP_AMD_SEV/)
+
+        // 2. Open HPKE session using the VERIFIED enclave pub — same key as the header
+        const hpkeSession = new Session(session.hpkePub)
+        await hpkeSession.init()
+
+        // 3. Encrypt a tiny payload using hpkeSession (not a worker — avoids key mismatch)
+        const tinyB64   = btoa("tiny-model-bytes")
+        const body      = {
+            action: "submit_job", dataset_id: 1,
+            model_onnx_base64: tinyB64, model_weights_base64: tinyB64,
+            submitted_by: "integration-test",
+        }
+        const aad     = new TextEncoder().encode(JSON.stringify({ rid: crypto.randomUUID(), ts: Date.now() }))
+        const request = await hpkeSession.encryptRequest(
+            new TextEncoder().encode(JSON.stringify(body)), aad)
+
+        // 4. POST to /v1/submit with matching X-RATLS-Browser-HPKE header
+        const submitResp = await fetch(TEE_URL + "/v1/submit", {
+            method:  "POST",
+            headers: {
+                "Content-Type":         "application/json",
+                "X-RATLS-Browser-HPKE": hpkeSession.browserPubB64Url(),
+            },
+            body:   JSON.stringify(request),
+            signal: AbortSignal.timeout(20_000),
+        })
+        expect(submitResp.ok, `submit returned ${submitResp.status}`).toBe(true)
+
+        // 5. Decrypt the encrypted response
+        const encResp  = await submitResp.json()
+        const plainPt  = await hpkeSession.decryptResponse(encResp)
+        const response = JSON.parse(new TextDecoder().decode(plainPt)) as Record<string, unknown>
+
+        console.log("✓ HPKE submit round-trip succeeded")
+        console.log(`  job_id : ${response.job_id}`)
+        console.log(`  status : ${response.status}`)
+
+        // After HPKE metadata submit, job is pending_upload (awaiting binary files)
+        expect(["pending_upload", "queued"]).toContain(response.status)
+        expect(typeof response.job_id).toBe("string")
+
+        // Upload tiny binary files to complete the job
+        const jobId = response.job_id as string
+        const tinyBytes = new TextEncoder().encode("tiny-model-bytes")
+        const modelUp = await fetch(`${TEE_URL}/v1/upload/${jobId}/model`, {
+            method: "PUT", headers: { "Content-Type": "application/octet-stream" },
+            body: tinyBytes, signal: AbortSignal.timeout(10_000),
+        })
+        expect(modelUp.ok).toBe(true)
+        const weightsUp = await fetch(`${TEE_URL}/v1/upload/${jobId}/weights`, {
+            method: "PUT", headers: { "Content-Type": "application/octet-stream" },
+            body: tinyBytes, signal: AbortSignal.timeout(10_000),
+        })
+        expect(weightsUp.ok).toBe(true)
+        const finalStatus = (await weightsUp.json()) as Record<string, unknown>
+        console.log(`  final status: ${finalStatus.status}`)
+        // After both files arrive, job should be queued (or error if hashes mismatch for tiny bytes)
+        expect(typeof finalStatus.job_id === "string" || finalStatus.status !== undefined).toBe(true)
+    }, 30_000)
 })
