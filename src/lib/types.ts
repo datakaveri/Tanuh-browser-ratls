@@ -24,4 +24,7 @@ export interface OpenedSession {
     hpkePub:    Uint8Array
     oidc:       CSOidcPayload
     send(path: string, body: unknown): Promise<unknown>
+    // Upload a File using AES-256-GCM-CHUNKED-v1 envelope encryption.
+    // sha256hex is the pre-computed hex SHA-256 of the plaintext file.
+    uploadEncrypted(path: string, file: File, sha256hex: string, onProgress?: (pct: number) => void): Promise<void>
 }

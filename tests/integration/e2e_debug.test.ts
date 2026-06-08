@@ -5,7 +5,7 @@
 import { describe, it, expect } from "vitest"
 import { verifyBundle } from "../../src/lib/bundle"
 import { verifyOIDCDebug } from "../../src/lib/oidc_debug"
-import { Session } from "../../src/lib/hpke"
+import { Session, uploadChunked } from "../../src/lib/hpke"
 import { b64urlEncode } from "../../src/lib/util/base64"
 import { zeroBuffer } from "../../src/lib/util/bytes"
 import { attestAndOpen } from "../../src/lib/index"
@@ -135,10 +135,15 @@ describe("E2E — debug enclave (dbgstat=enabled)", () => {
         await hpkeSession.init()
 
         // 3. Encrypt a tiny payload using hpkeSession (not a worker — avoids key mismatch)
-        const tinyB64   = btoa("tiny-model-bytes")
+        const tinyBytes = new TextEncoder().encode("tiny-model-bytes")
+        const tinyHashBuf = await crypto.subtle.digest("SHA-256", tinyBytes)
+        const tinyHex = Array.from(new Uint8Array(tinyHashBuf))
+            .map(b => b.toString(16).padStart(2, "0")).join("")
+
         const body      = {
             action: "submit_job", dataset_id: 1,
-            model_onnx_base64: tinyB64, model_weights_base64: tinyB64,
+            model_sha256:   tinyHex,
+            weights_sha256: tinyHex,
             submitted_by: "integration-test",
         }
         const aad     = new TextEncoder().encode(JSON.stringify({ rid: crypto.randomUUID(), ts: Date.now() }))
@@ -170,22 +175,23 @@ describe("E2E — debug enclave (dbgstat=enabled)", () => {
         expect(["pending_upload", "queued"]).toContain(response.status)
         expect(typeof response.job_id).toBe("string")
 
-        // Upload tiny binary files to complete the job
+        // Upload tiny binary files using AES-256-GCM-CHUNKED-v1 envelope encryption
         const jobId = response.job_id as string
-        const tinyBytes = new TextEncoder().encode("tiny-model-bytes")
-        const modelUp = await fetch(`${TEE_URL}/v1/upload/${jobId}/model`, {
-            method: "PUT", headers: { "Content-Type": "application/octet-stream" },
-            body: tinyBytes, signal: AbortSignal.timeout(10_000),
-        })
-        expect(modelUp.ok).toBe(true)
-        const weightsUp = await fetch(`${TEE_URL}/v1/upload/${jobId}/weights`, {
-            method: "PUT", headers: { "Content-Type": "application/octet-stream" },
-            body: tinyBytes, signal: AbortSignal.timeout(10_000),
-        })
-        expect(weightsUp.ok).toBe(true)
+
+        const modelUp = await uploadChunked(
+            `${TEE_URL}/v1/upload/${jobId}/model`,
+            tinyBytes, tinyHex, hpkeSession,
+        )
+        expect(modelUp.ok, `model upload returned ${modelUp.status}`).toBe(true)
+
+        const weightsUp = await uploadChunked(
+            `${TEE_URL}/v1/upload/${jobId}/weights`,
+            tinyBytes, tinyHex, hpkeSession,
+        )
+        expect(weightsUp.ok, `weights upload returned ${weightsUp.status}`).toBe(true)
+
         const finalStatus = (await weightsUp.json()) as Record<string, unknown>
         console.log(`  final status: ${finalStatus.status}`)
-        // After both files arrive, job should be queued (or error if hashes mismatch for tiny bytes)
         expect(typeof finalStatus.job_id === "string" || finalStatus.status !== undefined).toBe(true)
     }, 30_000)
 })

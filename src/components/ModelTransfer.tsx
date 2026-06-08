@@ -12,8 +12,8 @@ const STEPS: Step[] = [
   { id: "verify",   title: "Verify bundle (OIDC · eat_nonce · liveness ECDSA)", description: "jwtVerify · image_digest · binding key" },
   { id: "model_hash", title: "SHA256 hash model + weights",                        description: "WebCrypto native hash — fast" },
   { id: "submit_meta", title: "HPKE-encrypt metadata  POST /v1/submit",            description: "Tiny payload: hashes + dataset_id" },
-  { id: "upload_model", title: "Upload model binary  PUT /v1/upload/:id/model",   description: "Raw bytes over TLS 1.3" },
-  { id: "upload_weights", title: "Upload weights binary  PUT /v1/upload/:id/weights", description: "Raw bytes over TLS 1.3" },
+  { id: "upload_model", title: "Upload model binary  PUT /v1/upload/:id/model",   description: "AES-256-GCM encrypted, 16 MB chunks" },
+  { id: "upload_weights", title: "Upload weights binary  PUT /v1/upload/:id/weights", description: "AES-256-GCM encrypted, 16 MB chunks" },
   
 ]
 

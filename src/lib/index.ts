@@ -1,8 +1,11 @@
-import { b64urlEncode } from "./util/base64"
+import { b64urlEncode, b64encode } from "./util/base64"
 import { Session } from "./hpke"
 import type { AttestBundle, EncryptedResponse, AttestOptions, OpenedSession } from "./types"
 import type { CSOidcPayload } from "./oidc"
 import { WORKER_TIMEOUT_MS } from "./constants"
+
+const CHUNK_SIZE = 16 * 1024 * 1024   // 16 MB per AES-GCM chunk
+const ALGORITHM  = "AES-256-GCM-CHUNKED-v1"
 
 // Use Vite's ?worker suffix for correct bundling
 import VerifierWorker from "./worker.ts?worker"
@@ -79,6 +82,85 @@ export async function attestAndOpen(opts: AttestOptions): Promise<OpenedSession>
     return {
         hpkePub: enclaveHpkePub,
         oidc:    session.oidc,
+
+        // Encrypt File using AES-256-GCM-CHUNKED-v1, 16 MB per chunk.
+        // Encrypts in 16 MB pieces (peak: ~32 MB during encryption),
+        // then sends the assembled body in one fetch — works through any proxy.
+        // sha256hex must be the pre-computed hex SHA-256 of the plaintext file.
+        async uploadEncrypted(path: string, file: File, sha256hex: string, onProgress?: (pct: number) => void): Promise<void> {
+            const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE))
+            const fileId      = crypto.randomUUID()
+
+            const rawKey = crypto.getRandomValues(new Uint8Array(32))
+            const aesKey = await crypto.subtle.importKey(
+                "raw", rawKey, { name: "AES-GCM" }, false, ["encrypt"],
+            )
+            const { enc, wrappedKey } = await hpkeSession.sealSymmetricKey(rawKey)
+
+            const fileNonce = crypto.getRandomValues(new Uint8Array(8))
+
+            const header      = JSON.stringify({
+                algorithm:        ALGORITHM,
+                file_id:          fileId,
+                enc,
+                wrapped_key:      wrappedKey,
+                file_nonce:       b64encode(fileNonce),
+                total_chunks:     totalChunks,
+                plaintext_sha256: sha256hex,
+            })
+            const headerBytes = new TextEncoder().encode(header)
+
+            // Pre-allocate the full body:
+            //   4 bytes header-len + header + per-chunk (4 bytes len + plaintext + 16 GCM tag)
+            const bodySize = 4 + headerBytes.length
+                + totalChunks * 4
+                + file.size + totalChunks * 16
+            const body = new Uint8Array(bodySize)
+            const dv   = new DataView(body.buffer)
+            let   off  = 0
+
+            // Write header frame
+            dv.setUint32(off, headerBytes.length, false); off += 4
+            body.set(headerBytes, off);                   off += headerBytes.length
+
+            // Encrypt and write each chunk
+            const iv = new Uint8Array(12)
+            iv.set(fileNonce, 0)
+
+            for (let i = 0; i < totalChunks; i++) {
+                const plaintext = await file.slice(
+                    i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE,
+                ).arrayBuffer()
+
+                new DataView(iv.buffer).setUint32(8, i, false)
+                const aad = new TextEncoder().encode(`${i}:${totalChunks}:${fileId}`)
+
+                const ct = new Uint8Array(await crypto.subtle.encrypt(
+                    { name: "AES-GCM", iv: iv.slice(), additionalData: aad, tagLength: 128 },
+                    aesKey,
+                    plaintext,
+                ))
+
+                dv.setUint32(off, ct.length, false); off += 4
+                body.set(ct, off);                   off += ct.length
+
+                onProgress?.(Math.round((i + 1) / totalChunks * 100))
+            }
+
+            const url = opts.attestUrl ? new URL(path, opts.attestUrl).toString() : path
+            const resp = await fetch(url, {
+                method:  "PUT",
+                headers: {
+                    "Content-Type":         "application/octet-stream",
+                    "X-RATLS-Browser-HPKE": hpkeSession.browserPubB64Url(),
+                },
+                body,
+            })
+            if (!resp.ok) {
+                const msg = await resp.text().catch(() => "")
+                throw new Error(`upload failed: ${resp.status}${msg ? " — " + msg : ""}`)
+            }
+        },
 
         async send(path: string, body: unknown): Promise<unknown> {
             const plaintext = new TextEncoder().encode(JSON.stringify(body))

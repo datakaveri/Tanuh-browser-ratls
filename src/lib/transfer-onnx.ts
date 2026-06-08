@@ -1,20 +1,25 @@
 /**
- * Secure ONNX model transfer — two-step protocol:
+ * Secure ONNX model transfer — three-step protocol:
  *
- * 1. POST /v1/submit  (HPKE-encrypted, tiny)
+ * 1. SHA-256 hash each file in 16 MB streaming chunks (peak: ~16 MB)
+ * 2. POST /v1/submit  (HPKE-encrypted, tiny)
  *    { action, dataset_id, model_sha256, weights_sha256, submitted_by }
  *    → Buffer TEE creates job, returns { job_id }
+ * 3. PUT /v1/upload/:job_id/model   (AES-256-GCM-CHUNKED-v1, 16 MB chunks)
+ *    PUT /v1/upload/:job_id/weights  (same)
+ *    → Buffer TEE: HPKE-unwraps AES key, decrypts chunks, verifies SHA-256, forwards to Flask
  *
- * 2. PUT /v1/upload/:job_id/model   (binary, TLS-encrypted in transit)
- *    PUT /v1/upload/:job_id/weights  (binary, TLS-encrypted in transit)
- *    → Buffer TEE verifies SHA256 against committed hashes, queues job
- *
- * SHA256 hashes are committed via HPKE before the files arrive,
- * so a MITM cannot swap the files without detection.
+ * SHA-256 hashes are committed via HPKE before files arrive, so a MITM cannot
+ * substitute files even if they intercept the upload channel.
+ * AES-256-GCM per-chunk authentication tags prevent any in-transit modification.
+ * HPKE key-wrap ensures only the attested TEE can decrypt the AES key.
  */
 
+import { sha256 as nobleSha256 } from "@noble/hashes/sha256"
 import { attestAndOpen } from "./index"
 import type { OpenedSession } from "./types"
+
+const HASH_CHUNK = 16 * 1024 * 1024  // 16 MB — streaming hash chunk
 
 export type StepName =
   | "attest_start"
@@ -58,20 +63,13 @@ export async function transferOnnxModel(opts: TransferOptions): Promise<Transfer
   onStep("attest_done",
     `Digest: ${session.oidc.submods?.container?.image_digest ?? "—"} · HW: ${session.oidc.hwmodel ?? "—"}`)
 
-  // ── 2. SHA256 both files (native WebCrypto — fast) ────────────────────────
-  onStep("model_hash", `Hashing model (${fmt(modelFile.size)}) + weights (${fmt(weightsFile.size)})…`)
+  // ── 2. Streaming SHA-256 (16 MB at a time, ~16 MB peak) ──────────────────
+  onStep("model_hash", `Hashing model (${fmt(modelFile.size)})…`)
+  const modelSHA256 = await computeSHA256Streaming(modelFile)
 
-  const [modelBuf, weightsBuf] = await Promise.all([
-    modelFile.arrayBuffer(),
-    weightsFile.arrayBuffer(),
-  ])
-  const [modelHashBuf, weightsHashBuf] = await Promise.all([
-    crypto.subtle.digest("SHA-256", modelBuf),
-    crypto.subtle.digest("SHA-256", weightsBuf),
-  ])
-  const modelSHA256   = hex(modelHashBuf)
-  const weightsSHA256 = hex(weightsHashBuf)
-  onStep("model_hash", `SHA256 computed`)
+  onStep("model_hash", `Hashing weights (${fmt(weightsFile.size)})…`)
+  const weightsSHA256 = await computeSHA256Streaming(weightsFile)
+  onStep("model_hash", "SHA-256 computed")
 
   // ── 3. HPKE-encrypt tiny metadata → POST /v1/submit ──────────────────────
   onStep("submit_meta", "Sending HPKE-encrypted job metadata…")
@@ -93,33 +91,51 @@ export async function transferOnnxModel(opts: TransferOptions): Promise<Transfer
   const jobId = jobResult.job_id as string
   if (!jobId) throw new Error(`No job_id in response: ${JSON.stringify(response)}`)
 
-  // ── 4. Upload binary files over TLS ───────────────────────────────────────
-  const uploadBase = teeUrl ? teeUrl : ""
+  // ── 4. Envelope-encrypted chunked upload ─────────────────────────────────
+  onStep("upload_model", `Encrypting + uploading model (${fmt(modelFile.size)})…`)
+  try {
+    await session.uploadEncrypted(
+      `/v1/upload/${jobId}/model`,
+      modelFile,
+      modelSHA256,
+      pct => onStep("upload_model", `${pct}%`),
+    )
+  } catch (err) {
+    onStep("error", `Model upload failed: ${err instanceof Error ? err.message : err}`)
+    throw err
+  }
 
-  onStep("upload_model", `Uploading model (${fmt(modelFile.size)}) over TLS…`)
-  const modelResp = await fetch(`${uploadBase}/v1/upload/${jobId}/model`, {
-    method:  "PUT",
-    headers: { "Content-Type": "application/octet-stream" },
-    body:    modelBuf,
-  })
-  if (!modelResp.ok) throw new Error(`model upload failed: ${modelResp.status}`)
-
-  onStep("upload_weights", `Uploading weights (${fmt(weightsFile.size)}) over TLS…`)
-  const weightsResp = await fetch(`${uploadBase}/v1/upload/${jobId}/weights`, {
-    method:  "PUT",
-    headers: { "Content-Type": "application/octet-stream" },
-    body:    weightsBuf,
-  })
-  if (!weightsResp.ok) throw new Error(`weights upload failed: ${weightsResp.status}`)
+  onStep("upload_weights", `Encrypting + uploading weights (${fmt(weightsFile.size)})…`)
+  let finalResponse: unknown
+  try {
+    await session.uploadEncrypted(
+      `/v1/upload/${jobId}/weights`,
+      weightsFile,
+      weightsSHA256,
+      pct => onStep("upload_weights", `${pct}%`),
+    )
+    finalResponse = { job_id: jobId, status: "queued" }
+  } catch (err) {
+    onStep("error", `Weights upload failed: ${err instanceof Error ? err.message : err}`)
+    throw err
+  }
 
   const elapsedMs = Math.round(performance.now() - t0)
   onStep("done", `Job queued in ${elapsedMs}ms`)
 
-  return { oidc: session.oidc, response: await weightsResp.json(), elapsedMs }
+  return { oidc: session.oidc, response: finalResponse, elapsedMs }
 }
 
-function hex(buf: ArrayBuffer): string {
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("")
+async function computeSHA256Streaming(file: File): Promise<string> {
+  const hasher = nobleSha256.create()
+  let offset = 0
+  while (offset < file.size) {
+    const buf = await file.slice(offset, offset + HASH_CHUNK).arrayBuffer()
+    hasher.update(new Uint8Array(buf))
+    offset += HASH_CHUNK
+  }
+  const digest = hasher.digest()
+  return Array.from(digest).map(b => b.toString(16).padStart(2, "0")).join("")
 }
 
 function fmt(n: number): string {

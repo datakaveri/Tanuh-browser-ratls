@@ -1,5 +1,5 @@
 // Buffer TEE image digest — update whenever buffer-tee image is rebuilt.
-export const EXPECTED_IMAGE_DIGEST = "sha256:2210255fb8f520737627d978642b58081b2dbd53a59d9612eefdbb68aa5727cd"
+export const EXPECTED_IMAGE_DIGEST = "sha256:565af9d1e21898c3bec4164cf91ffe0b9e0999a4385c59b9ed5f6e12ec9c8728"
 export const OIDC_AUDIENCE         = "ratls-browser"
 
 // TEE base URL.
