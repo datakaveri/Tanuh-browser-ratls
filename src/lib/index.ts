@@ -4,6 +4,31 @@ import type { AttestBundle, EncryptedResponse, AttestOptions, OpenedSession } fr
 import type { CSOidcPayload } from "./oidc"
 import { WORKER_TIMEOUT_MS } from "./constants"
 
+// ── Public API re-exports ─────────────────────────────────────────────────────
+
+// Core types
+export type { AttestBundle, EncryptedRequest, EncryptedResponse, AttestOptions, OpenedSession } from "./types"
+export type { CSOidcPayload } from "./oidc"
+
+// Bundle verification (low-level — use attestAndOpen for the common case)
+export { verifyBundle } from "./bundle"
+export type { OIDCVerifyFn, VerifiedSession } from "./bundle"
+
+// HPKE session (low-level — for custom encryption flows)
+export { Session, uploadChunked } from "./hpke"
+
+// ONNX model transfer (high-level convenience)
+export { transferOnnxModel } from "./transfer-onnx"
+export type { TransferOptions, TransferResult, StepName } from "./transfer-onnx"
+
+// Debug OIDC verifier — works with dbgstat=enabled enclaves; NEVER use in production
+export { verifyOIDCDebug } from "./oidc_debug"
+
+// Selected constants
+export { EXPECTED_IMAGE_DIGEST, OIDC_AUDIENCE, OIDC_ISSUER } from "./constants"
+
+// ── Internal ──────────────────────────────────────────────────────────────────
+
 const CHUNK_SIZE = 16 * 1024 * 1024   // 16 MB per AES-GCM chunk
 const ALGORITHM  = "AES-256-GCM-CHUNKED-v1"
 

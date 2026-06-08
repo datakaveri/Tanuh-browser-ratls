@@ -47,7 +47,7 @@ export async function verifyBundle(
     // Step 2: Import binding pubkey for liveness check
     const bindingKey = await crypto.subtle.importKey(
         "spki",
-        bindingSPKI,
+        new Uint8Array(bindingSPKI),
         { name: "ECDSA", namedCurve: "P-256" },
         false,
         ["verify"],
@@ -58,8 +58,8 @@ export async function verifyBundle(
     const ok = await crypto.subtle.verify(
         { name: "ECDSA", hash: "SHA-256" },
         bindingKey,
-        sigRaw,
-        livenessNonce,
+        new Uint8Array(sigRaw),
+        new Uint8Array(livenessNonce),
     )
     if (!ok) throw new Error("liveness signature invalid")
 

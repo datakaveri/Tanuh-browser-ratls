@@ -40,12 +40,14 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
                 zeroBuffer(nonce)
             }
             const session: SerializedSession = {
-                hpkePub:    result.hpkePub.buffer,
+                hpkePub:    result.hpkePub.buffer as ArrayBuffer,
                 verifiedAt: result.verifiedAt,
                 oidc:       result.oidc,
             }
-            self.postMessage({ type: "verify_ok", session },
-                [session.hpkePub])
+            self.postMessage(
+                { type: "verify_ok", session },
+                { transfer: [session.hpkePub] },
+            )
         }
 
         if (req.type === "encrypt") {
