@@ -140,10 +140,9 @@ describe("E2E — debug enclave (dbgstat=enabled)", () => {
             .map(b => b.toString(16).padStart(2, "0")).join("")
 
         const body      = {
-            action: "submit_job", dataset_id: 1,
+            dataset_id: 1,
             model_sha256:   tinyHex,
             weights_sha256: tinyHex,
-            submitted_by: "integration-test",
         }
         const aad     = new TextEncoder().encode(JSON.stringify({ rid: crypto.randomUUID(), ts: Date.now() }))
         const request = await hpkeSession.encryptRequest(
