@@ -1,7 +1,6 @@
 import type { CSOidcPayload } from "./oidc"
 
 export interface AttestBundle {
-    bundle_version:     "ratls-cs-v1"
     oidc_token:         string    // JWT
     binding_pubkey_b64: string    // SPKI DER, standard base64 with padding
     hpke_pubkey_b64:    string    // X25519 raw 32 bytes, standard base64 with padding

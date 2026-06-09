@@ -11,7 +11,6 @@ import { concat, validateBuffer, zeroBuffer } from "./util/bytes"
 import type { EncryptedRequest, EncryptedResponse } from "./types"
 
 const CHUNK_SIZE   = 16 * 1024 * 1024  // 16 MB per AES-GCM chunk
-const ALGORITHM    = "AES-256-GCM-CHUNKED-v1"
 
 const suite = new CipherSuite({
     kem:  new DhkemX25519HkdfSha256(),
@@ -116,7 +115,6 @@ export async function uploadChunked(
     const fileNonce = crypto.getRandomValues(new Uint8Array(8))
 
     const header      = JSON.stringify({
-        algorithm:    ALGORITHM,
         file_id:      fileId,
         enc,
         wrapped_key:  wrappedKey,
