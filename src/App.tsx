@@ -95,11 +95,9 @@ export default function App() {
 
             addLog("Submitting job metadata (HPKE-encrypted)…")
             const result = await session.send("/v1/submit", {
-                action:         "submit_job",
                 dataset_id:     datasetId,
                 model_sha256:   modelSha256,
                 weights_sha256: weightsSha256,
-                submitted_by:   "test-app",
             }) as { job_id: string; status: string }
 
             const id = result.job_id
@@ -144,7 +142,6 @@ export default function App() {
                 modelFile,
                 weightsFile,
                 datasetId,
-                submittedBy: "test-app",
                 onStep: (step, detail) => addLog(`[${step}] ${detail}`),
             })
             const r = result.response as { job_id: string; status: string }
