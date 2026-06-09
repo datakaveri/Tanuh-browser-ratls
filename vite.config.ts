@@ -1,26 +1,16 @@
 import { defineConfig } from "vite"
-import dts from "vite-plugin-dts"
-import { resolve } from "path"
+import react from "@vitejs/plugin-react"
+
+const TEE_URL = process.env.VITE_TEE_URL ?? "https://8.35.197.50:8443"
 
 export default defineConfig({
-    plugins: [
-        dts({
-            include:      ["src/lib"],
-            rollupTypes:  true,
-            tsconfigPath: "./tsconfig.lib.json",
-        }),
-    ],
-    build: {
-        lib: {
-            entry:    resolve(__dirname, "src/lib/index.ts"),
-            formats:  ["es"],
-            fileName: "index",
-        },
-        rollupOptions: {
-            // Peer deps — consumers install their own copies
-            external: ["@hpke/core", "@noble/hashes/sha256", "jose"],
+    plugins: [react()],
+    worker: { format: "es" },
+    server: {
+        port: 5173,
+        proxy: {
+            "/v1":      { target: TEE_URL, changeOrigin: true, secure: false },
+            "/healthz": { target: TEE_URL, changeOrigin: true, secure: false },
         },
     },
-    // Workers must be ES modules so the inline blob URL works in modern browsers
-    worker: { format: "es" },
 })
