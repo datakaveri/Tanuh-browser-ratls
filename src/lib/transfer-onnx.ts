@@ -3,7 +3,7 @@
  *
  * 1. SHA-256 hash each file in 16 MB streaming chunks (peak: ~16 MB)
  * 2. POST /v1/submit  (HPKE-encrypted, tiny)
- *    { action, dataset_id, model_sha256, weights_sha256, submitted_by }
+ *    { dataset_id, model_sha256, weights_sha256 }
  *    → Buffer TEE creates job, returns { job_id }
  * 3. PUT /v1/upload/:job_id/model   (AES-256-GCM-CHUNKED-v1, 16 MB chunks)
  *    PUT /v1/upload/:job_id/weights  (same)
@@ -32,12 +32,11 @@ export type StepName =
   | "error"
 
 export interface TransferOptions {
-  teeUrl:       string
-  modelFile:    File
-  weightsFile:  File
-  datasetId:    1 | 2 | 3
-  submittedBy?: string
-  onStep?:      (step: StepName, detail: string) => void
+  teeUrl:      string
+  modelFile:   File
+  weightsFile: File
+  datasetId:   1 | 2 | 3
+  onStep?:     (step: StepName, detail: string) => void
 }
 
 export interface TransferResult {
@@ -47,8 +46,7 @@ export interface TransferResult {
 }
 
 export async function transferOnnxModel(opts: TransferOptions): Promise<TransferResult> {
-  const { teeUrl, modelFile, weightsFile, datasetId,
-          submittedBy = "tanuh-browser", onStep = () => {} } = opts
+  const { teeUrl, modelFile, weightsFile, datasetId, onStep = () => {} } = opts
   const t0 = performance.now()
 
   // ── 1. RA-TLS attestation ─────────────────────────────────────────────────
@@ -76,11 +74,9 @@ export async function transferOnnxModel(opts: TransferOptions): Promise<Transfer
   let response: unknown
   try {
     response = await session.send("/v1/submit", {
-      action:         "submit_job",
       dataset_id:     datasetId,
       model_sha256:   modelSHA256,
       weights_sha256: weightsSHA256,
-      submitted_by:   submittedBy,
     })
   } catch (err) {
     onStep("error", `Metadata submit failed: ${err instanceof Error ? err.message : err}`)

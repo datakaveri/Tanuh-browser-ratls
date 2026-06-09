@@ -46,7 +46,6 @@ describe("E2E — debug enclave (dbgstat=enabled)", () => {
         expect(resp.ok, `attest endpoint returned ${resp.status}`).toBe(true)
 
         const bundle = await resp.json() as AttestBundle
-        expect(bundle.bundle_version).toBe("ratls-cs-v1")
         expect(bundle.oidc_token).toBeTruthy()
         expect(bundle.binding_pubkey_b64).toBeTruthy()
         expect(bundle.hpke_pubkey_b64).toBeTruthy()
@@ -65,7 +64,7 @@ describe("E2E — debug enclave (dbgstat=enabled)", () => {
         expect(session.verifiedAt).toBeGreaterThan(0)
         expect(session.oidc.swname).toBe("CONFIDENTIAL_SPACE")
         expect(session.oidc.hwmodel).toMatch(/^GCP_AMD_SEV/)
-        expect(session.oidc.submods.container.image_digest).toMatch(/^sha256:/)
+        expect(session.oidc.submods.container.image_digest).toBe("sha256:9a09b2dd1037f4bf150d10281467142142655da09487cabb2ff5af0a122cf05e")
 
         // 4. Build HPKE session with the verified enclave pubkey
         const hpkeSession = new Session(session.hpkePub)

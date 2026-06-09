@@ -5,7 +5,6 @@ import type { CSOidcPayload } from "./oidc"
 import { WORKER_TIMEOUT_MS } from "./constants"
 
 const CHUNK_SIZE = 16 * 1024 * 1024   // 16 MB per AES-GCM chunk
-const ALGORITHM  = "AES-256-GCM-CHUNKED-v1"
 
 // Use Vite's ?worker suffix for correct bundling
 import VerifierWorker from "./worker.ts?worker"
@@ -100,7 +99,6 @@ export async function attestAndOpen(opts: AttestOptions): Promise<OpenedSession>
             const fileNonce = crypto.getRandomValues(new Uint8Array(8))
 
             const header      = JSON.stringify({
-                algorithm:        ALGORITHM,
                 file_id:          fileId,
                 enc,
                 wrapped_key:      wrappedKey,

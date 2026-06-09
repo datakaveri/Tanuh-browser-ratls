@@ -1,4 +1,4 @@
-import { EXPECTED_IMAGE_DIGEST, BUNDLE_VERSION } from "./constants"
+import { EXPECTED_IMAGE_DIGEST } from "./constants"
 import { b64decode } from "./util/base64"
 import { validateBuffer } from "./util/bytes"
 import { derToRaw } from "./util/ecdsa"
@@ -26,8 +26,6 @@ export async function verifyBundle(
     // Guard: constants filled
     if (!EXPECTED_IMAGE_DIGEST)
         throw new Error("verifier misconfigured: EXPECTED_IMAGE_DIGEST empty")
-    if (bundle.bundle_version !== BUNDLE_VERSION)
-        throw new Error(`unknown bundle version: ${bundle.bundle_version}`)
 
     // Guard: nonce
     if (livenessNonce.length !== 32)
