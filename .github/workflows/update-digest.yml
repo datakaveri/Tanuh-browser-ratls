@@ -1,0 +1,63 @@
+name: Update Image Digest
+
+on:
+  repository_dispatch:
+    types:
+      - update-buffer-tee-digest
+      - update-processing-tee-digest
+
+jobs:
+  update-digest:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: main
+
+      - name: Update digest in constants.ts
+        run: |
+          DIGEST="${{ github.event.client_payload.digest }}"
+          COMPONENT="${{ github.event.client_payload.component }}"
+          echo "Updating $COMPONENT digest to: $DIGEST"
+
+          if [ "$COMPONENT" = "buffer-tee" ]; then
+            sed -i "s|export const EXPECTED_IMAGE_DIGEST = \"sha256:[^\"]*\"|export const EXPECTED_IMAGE_DIGEST = \"$DIGEST\"|" src/constants.ts
+          elif [ "$COMPONENT" = "processing-tee" ]; then
+            sed -i "s|export const EXPECTED_PROCESSING_IMAGE_DIGEST = \"sha256:[^\"]*\"|export const EXPECTED_PROCESSING_IMAGE_DIGEST = \"$DIGEST\"|" src/constants.ts
+          fi
+
+          echo "Updated constants.ts:"
+          cat src/constants.ts
+
+      - name: Commit and push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/constants.ts
+          git diff --staged --quiet || git commit -m "ci: update ${{ github.event.client_payload.component }} image digest
+
+          Component: ${{ github.event.client_payload.component }}
+          Digest:    ${{ github.event.client_payload.digest }}
+          Source:    ${{ github.event.client_payload.commit_sha }}"
+          git push
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
