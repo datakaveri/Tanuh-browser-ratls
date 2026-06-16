@@ -2,7 +2,7 @@
 // These values are automatically updated by CI/CD when TEE images change.
 // verifyBundle throws "verifier misconfigured" if EXPECTED_IMAGE_DIGEST is empty.
 
-export const EXPECTED_IMAGE_DIGEST            = "sha256:7b7209d9b5c457b9d0cac991819ff1bd20f290932a392385d3a16e4894229da5"
+export const EXPECTED_IMAGE_DIGEST            = "sha256:9bb13e7384a55f6c856ae5b463ae3436b0676461a93801e253451e4822ffaffb"
 export const EXPECTED_PROCESSING_IMAGE_DIGEST = "sha256:"
 
 export const OIDC_AUDIENCE     = "ratls-browser"
