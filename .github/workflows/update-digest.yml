@@ -19,47 +19,25 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           ref: main
 
-      - name: Update digest in constants.ts
+      - name: Update buffer-tee digest
+        if: github.event.action == 'update-buffer-tee-digest'
         env:
           DIGEST: ${{ github.event.client_payload.digest }}
-          COMPONENT: ${{ github.event.client_payload.component }}
         run: |
-          echo "Component: $COMPONENT"
-          echo "Digest: $DIGEST"
-          echo "=== Before ==="
+          echo "Updating buffer-tee digest to: $DIGEST"
+          grep -n "EXPECTED_IMAGE_DIGEST" src/constants.ts
+          sed -i "s|export const EXPECTED_IMAGE_DIGEST *= *\"sha256:[^\"]*\"|export const EXPECTED_IMAGE_DIGEST            = \"${DIGEST}\"|g" src/constants.ts
+          echo "After update:"
           cat src/constants.ts
 
-          if [ "$COMPONENT" = "buffer-tee" ]; then
-            python3 -c "
-import re, os
-digest = os.environ['DIGEST']
-content = open('src/constants.ts').read()
-print('Looking for EXPECTED_IMAGE_DIGEST...')
-print('Found:', 'EXPECTED_IMAGE_DIGEST' in content)
-updated = re.sub(
-    r'(export const EXPECTED_IMAGE_DIGEST\s*=\s*)\"sha256:[^\"]*\"',
-    r'\g<1>\"' + digest + '\"',
-    content
-)
-open('src/constants.ts', 'w').write(updated)
-print('Done')
-"
-          elif [ "$COMPONENT" = "processing-tee" ]; then
-            python3 -c "
-import re, os
-digest = os.environ['DIGEST']
-content = open('src/constants.ts').read()
-updated = re.sub(
-    r'(export const EXPECTED_PROCESSING_IMAGE_DIGEST\s*=\s*)\"sha256:[^\"]*\"',
-    r'\g<1>\"' + digest + '\"',
-    content
-)
-open('src/constants.ts', 'w').write(updated)
-print('Done')
-"
-          fi
-
-          echo "=== After ==="
+      - name: Update processing-tee digest
+        if: github.event.action == 'update-processing-tee-digest'
+        env:
+          DIGEST: ${{ github.event.client_payload.digest }}
+        run: |
+          echo "Updating processing-tee digest to: $DIGEST"
+          sed -i "s|export const EXPECTED_PROCESSING_IMAGE_DIGEST *= *\"sha256:[^\"]*\"|export const EXPECTED_PROCESSING_IMAGE_DIGEST = \"${DIGEST}\"|g" src/constants.ts
+          echo "After update:"
           cat src/constants.ts
 
       - name: Commit and push
@@ -67,5 +45,5 @@ print('Done')
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add src/constants.ts
-          git diff --staged --quiet && echo "No changes to commit" || git commit -m "ci: update ${{ github.event.client_payload.component }} image digest to ${{ github.event.client_payload.digest }}"
+          git diff --staged --quiet && echo "No changes to commit" || git commit -m "ci: update image digest for ${{ github.event.action }}"
           git push
