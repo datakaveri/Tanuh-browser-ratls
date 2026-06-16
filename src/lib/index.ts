@@ -18,14 +18,14 @@ export type { OIDCVerifyFn, VerifiedSession } from "./bundle"
 export { Session, uploadChunked } from "./hpke"
 
 // ONNX model transfer (high-level convenience)
-export { transferOnnxModel } from "./transfer-onnx"
-export type { TransferOptions, TransferResult, StepName } from "./transfer-onnx"
+export { transferOnnxModel, submitOnnxModel } from "./transfer-onnx"
+export type { TransferOptions, TransferResult, StepName, SubmitOptions, SubmitResult, UploadStepName } from "./transfer-onnx"
 
 // Debug OIDC verifier — works with dbgstat=enabled enclaves; NEVER use in production
 export { verifyOIDCDebug } from "./oidc_debug"
 
 // Selected constants
-export { EXPECTED_IMAGE_DIGEST, OIDC_AUDIENCE, OIDC_ISSUER } from "./constants"
+export { EXPECTED_IMAGE_DIGEST, OIDC_AUDIENCE, OIDC_ISSUER, BUFFER_TEE_SOURCE_REPO_URL } from "./constants"
 
 // ── Internal ──────────────────────────────────────────────────────────────────
 
@@ -84,9 +84,9 @@ export async function attestAndOpen(opts: AttestOptions): Promise<OpenedSession>
     const nonce = crypto.getRandomValues(new Uint8Array(32))
 
     // 2. Fetch bundle — nonce goes in header as base64url (RawURLEncoding, no padding)
-    const resp = await fetch(opts.attestUrl + "/v1/attest", {
-        headers: { "X-RATLS-Nonce": b64urlEncode(nonce) },
-    })
+    const attestHeaders: Record<string, string> = { "X-RATLS-Nonce": b64urlEncode(nonce) }
+    if (opts.keycloakToken) attestHeaders["Authorization"] = `Bearer ${opts.keycloakToken}`
+    const resp = await fetch(opts.attestUrl + "/v1/attest", { headers: attestHeaders })
     if (!resp.ok) throw new Error(`attest failed: ${resp.status}`)
     const bundle = await resp.json() as AttestBundle
 
@@ -171,14 +171,12 @@ export async function attestAndOpen(opts: AttestOptions): Promise<OpenedSession>
             }
 
             const url = opts.attestUrl ? new URL(path, opts.attestUrl).toString() : path
-            const resp = await fetch(url, {
-                method:  "PUT",
-                headers: {
-                    "Content-Type":         "application/octet-stream",
-                    "X-RATLS-Browser-HPKE": hpkeSession.browserPubB64Url(),
-                },
-                body,
-            })
+            const uploadHeaders: Record<string, string> = {
+                "Content-Type":         "application/octet-stream",
+                "X-RATLS-Browser-HPKE": hpkeSession.browserPubB64Url(),
+            }
+            if (opts.keycloakToken) uploadHeaders["Authorization"] = `Bearer ${opts.keycloakToken}`
+            const resp = await fetch(url, { method: "PUT", headers: uploadHeaders, body })
             if (!resp.ok) {
                 const msg = await resp.text().catch(() => "")
                 throw new Error(`upload failed: ${resp.status}${msg ? " — " + msg : ""}`)
@@ -200,13 +198,15 @@ export async function attestAndOpen(opts: AttestOptions): Promise<OpenedSession>
 
             // When attestUrl is empty the Vite proxy handles routing via relative paths.
             const submitUrl = opts.attestUrl ? new URL(path, opts.attestUrl).toString() : path
+            const sendHeaders: Record<string, string> = {
+                "Content-Type":         "application/json",
+                "X-RATLS-Browser-HPKE": hpkeSession.browserPubB64Url(),
+            }
+            if (opts.keycloakToken) sendHeaders["Authorization"] = `Bearer ${opts.keycloakToken}`
             const r = await fetch(submitUrl, {
                 method:  "POST",
-                headers: {
-                    "Content-Type":         "application/json",
-                    "X-RATLS-Browser-HPKE": hpkeSession.browserPubB64Url(),
-                },
-                body: JSON.stringify(request),
+                headers: sendHeaders,
+                body:    JSON.stringify(request),
             })
             if (!r.ok) throw new Error(`submit failed: ${r.status}`)
 

@@ -16,7 +16,8 @@ export interface EncryptedRequest {
 export type EncryptedResponse = EncryptedRequest
 
 export interface AttestOptions {
-    attestUrl: string    // e.g. "https://tee.example.com:8443"
+    attestUrl:      string    // e.g. "https://tee.example.com:8443"
+    keycloakToken?: string    // Keycloak Bearer token — forwarded as Authorization header on all TEE requests
 }
 
 export interface OpenedSession {

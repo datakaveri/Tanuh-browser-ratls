@@ -1,5 +1,5 @@
 // Buffer TEE image digest — update whenever buffer-tee image is rebuilt.
-export const EXPECTED_IMAGE_DIGEST = "sha256:9a09b2dd1037f4bf150d10281467142142655da09487cabb2ff5af0a122cf05e"
+export const EXPECTED_IMAGE_DIGEST = "sha256:5d25e14558583109eb803f1c497db10d6c44acb72bcef9da4408c5e7fed790e6"
 export const OIDC_AUDIENCE         = "ratls-browser"
 
 export const OIDC_ISSUER           = "https://confidentialcomputing.googleapis.com"
@@ -8,3 +8,6 @@ export const OIDC_JWKS_URL         =
     "signer@confidentialspace-sign.iam.gserviceaccount.com"
 export const HPKE_INFO_PREFIX      = "ratls-cs-v1|"
 export const WORKER_TIMEOUT_MS     = 30_000
+
+// Link to the Buffer TEE source code — set once the repo is made public.
+export const BUFFER_TEE_SOURCE_REPO_URL = ""

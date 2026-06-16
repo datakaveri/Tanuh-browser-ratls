@@ -31,12 +31,16 @@ export type StepName =
   | "done"
   | "error"
 
+// Steps that belong to the upload phase only (post-attestation).
+export type UploadStepName = Exclude<StepName, "attest_start" | "attest_done">
+
 export interface TransferOptions {
-  teeUrl:      string
-  modelFile:   File
-  weightsFile: File
-  datasetId:   1 | 2 | 3
-  onStep?:     (step: StepName, detail: string) => void
+  teeUrl:         string
+  modelFile:      File
+  weightsFile:    File
+  datasetId:      1 | 2 | 3
+  keycloakToken?: string    // forwarded to attestAndOpen and all subsequent TEE requests
+  onStep?:        (step: StepName, detail: string) => void
 }
 
 export interface TransferResult {
@@ -45,23 +49,29 @@ export interface TransferResult {
   elapsedMs: number
 }
 
-export async function transferOnnxModel(opts: TransferOptions): Promise<TransferResult> {
-  const { teeUrl, modelFile, weightsFile, datasetId, onStep = () => {} } = opts
+// SubmitOptions is used when the caller has already attested and holds an
+// OpenedSession — e.g. to show the attestation report before uploading.
+export interface SubmitOptions {
+  teeUrl:      string
+  session:     OpenedSession
+  modelFile:   File
+  weightsFile: File
+  datasetId:   1 | 2 | 3
+  onStep?:     (step: UploadStepName, detail: string) => void
+}
+
+export interface SubmitResult {
+  jobId:     string
+  elapsedMs: number
+}
+
+// submitOnnxModel handles the post-attestation upload steps using an
+// already-opened session returned by attestAndOpen().
+export async function submitOnnxModel(opts: SubmitOptions): Promise<SubmitResult> {
+  const { session, modelFile, weightsFile, datasetId, onStep = () => {} } = opts
   const t0 = performance.now()
 
-  // ── 1. RA-TLS attestation ─────────────────────────────────────────────────
-  onStep("attest_start", `Attesting Buffer TEE at ${teeUrl}…`)
-  let session: OpenedSession
-  try {
-    session = await attestAndOpen({ attestUrl: teeUrl })
-  } catch (err) {
-    onStep("error", `Attestation failed: ${err instanceof Error ? err.message : err}`)
-    throw err
-  }
-  onStep("attest_done",
-    `Digest: ${session.oidc.submods?.container?.image_digest ?? "—"} · HW: ${session.oidc.hwmodel ?? "—"}`)
-
-  // ── 2. Streaming SHA-256 (16 MB at a time, ~16 MB peak) ──────────────────
+  // ── 1. Streaming SHA-256 (16 MB at a time, ~16 MB peak) ──────────────────
   onStep("model_hash", `Hashing model (${fmt(modelFile.size)})…`)
   const modelSHA256 = await computeSHA256Streaming(modelFile)
 
@@ -69,7 +79,7 @@ export async function transferOnnxModel(opts: TransferOptions): Promise<Transfer
   const weightsSHA256 = await computeSHA256Streaming(weightsFile)
   onStep("model_hash", "SHA-256 computed")
 
-  // ── 3. HPKE-encrypt tiny metadata → POST /v1/submit ──────────────────────
+  // ── 2. HPKE-encrypt tiny metadata → POST /v1/submit ──────────────────────
   onStep("submit_meta", "Sending HPKE-encrypted job metadata…")
   let response: unknown
   try {
@@ -87,7 +97,7 @@ export async function transferOnnxModel(opts: TransferOptions): Promise<Transfer
   const jobId = jobResult.job_id as string
   if (!jobId) throw new Error(`No job_id in response: ${JSON.stringify(response)}`)
 
-  // ── 4. Envelope-encrypted chunked upload ─────────────────────────────────
+  // ── 3. Envelope-encrypted chunked upload ─────────────────────────────────
   onStep("upload_model", `Encrypting + uploading model (${fmt(modelFile.size)})…`)
   try {
     await session.uploadEncrypted(
@@ -102,7 +112,6 @@ export async function transferOnnxModel(opts: TransferOptions): Promise<Transfer
   }
 
   onStep("upload_weights", `Encrypting + uploading weights (${fmt(weightsFile.size)})…`)
-  let finalResponse: unknown
   try {
     await session.uploadEncrypted(
       `/v1/upload/${jobId}/weights`,
@@ -110,7 +119,6 @@ export async function transferOnnxModel(opts: TransferOptions): Promise<Transfer
       weightsSHA256,
       pct => onStep("upload_weights", `${pct}%`),
     )
-    finalResponse = { job_id: jobId, status: "queued" }
   } catch (err) {
     onStep("error", `Weights upload failed: ${err instanceof Error ? err.message : err}`)
     throw err
@@ -118,8 +126,44 @@ export async function transferOnnxModel(opts: TransferOptions): Promise<Transfer
 
   const elapsedMs = Math.round(performance.now() - t0)
   onStep("done", `Job queued in ${elapsedMs}ms`)
+  return { jobId, elapsedMs }
+}
 
-  return { oidc: session.oidc, response: finalResponse, elapsedMs }
+// transferOnnxModel is the original one-shot convenience function.
+// It attests the Buffer TEE and immediately uploads the model + weights.
+// For a two-step flow (show attestation report before uploading),
+// call attestAndOpen() then submitOnnxModel() separately.
+export async function transferOnnxModel(opts: TransferOptions): Promise<TransferResult> {
+  const { teeUrl, modelFile, weightsFile, datasetId, keycloakToken, onStep = () => {} } = opts
+  const t0 = performance.now()
+
+  // ── 1. RA-TLS attestation ─────────────────────────────────────────────────
+  onStep("attest_start", `Attesting Buffer TEE at ${teeUrl}…`)
+  let session: OpenedSession
+  try {
+    session = await attestAndOpen({
+      attestUrl: teeUrl,
+      ...(keycloakToken !== undefined ? { keycloakToken } : {}),
+    })
+  } catch (err) {
+    onStep("error", `Attestation failed: ${err instanceof Error ? err.message : err}`)
+    throw err
+  }
+  onStep("attest_done",
+    `Digest: ${session.oidc.submods?.container?.image_digest ?? "—"} · HW: ${session.oidc.hwmodel ?? "—"}`)
+
+  // ── 2–4. Hash + submit + upload (delegated) ───────────────────────────────
+  const { jobId } = await submitOnnxModel({
+    teeUrl,
+    session,
+    modelFile,
+    weightsFile,
+    datasetId,
+    onStep: onStep as (step: UploadStepName, detail: string) => void,
+  })
+
+  const elapsedMs = Math.round(performance.now() - t0)
+  return { oidc: session.oidc, response: { job_id: jobId, status: "queued" }, elapsedMs }
 }
 
 async function computeSHA256Streaming(file: File): Promise<string> {
