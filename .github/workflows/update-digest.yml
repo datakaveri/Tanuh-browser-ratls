@@ -20,41 +20,46 @@ jobs:
           ref: main
 
       - name: Update digest in constants.ts
+        env:
+          DIGEST: ${{ github.event.client_payload.digest }}
+          COMPONENT: ${{ github.event.client_payload.component }}
         run: |
-          DIGEST="${{ github.event.client_payload.digest }}"
-          COMPONENT="${{ github.event.client_payload.component }}"
           echo "Component: $COMPONENT"
           echo "Digest: $DIGEST"
-          echo "Before update:"
+          echo "=== Before ==="
           cat src/constants.ts
+
           if [ "$COMPONENT" = "buffer-tee" ]; then
-            python3 << PYEOF
-import re
+            python3 -c "
+import re, os
+digest = os.environ['DIGEST']
 content = open('src/constants.ts').read()
-digest = "$DIGEST"
+print('Looking for EXPECTED_IMAGE_DIGEST...')
+print('Found:', 'EXPECTED_IMAGE_DIGEST' in content)
 updated = re.sub(
-    r'export const EXPECTED_IMAGE_DIGEST\s*=\s*"sha256:[^"]*"',
-    f'export const EXPECTED_IMAGE_DIGEST            = "{digest}"',
+    r'(export const EXPECTED_IMAGE_DIGEST\s*=\s*)\"sha256:[^\"]*\"',
+    r'\g<1>\"' + digest + '\"',
     content
 )
 open('src/constants.ts', 'w').write(updated)
 print('Done')
-PYEOF
+"
           elif [ "$COMPONENT" = "processing-tee" ]; then
-            python3 << PYEOF
-import re
+            python3 -c "
+import re, os
+digest = os.environ['DIGEST']
 content = open('src/constants.ts').read()
-digest = "$DIGEST"
 updated = re.sub(
-    r'export const EXPECTED_PROCESSING_IMAGE_DIGEST\s*=\s*"sha256:[^"]*"',
-    f'export const EXPECTED_PROCESSING_IMAGE_DIGEST = "{digest}"',
+    r'(export const EXPECTED_PROCESSING_IMAGE_DIGEST\s*=\s*)\"sha256:[^\"]*\"',
+    r'\g<1>\"' + digest + '\"',
     content
 )
 open('src/constants.ts', 'w').write(updated)
 print('Done')
-PYEOF
+"
           fi
-          echo "After update:"
+
+          echo "=== After ==="
           cat src/constants.ts
 
       - name: Commit and push
@@ -62,9 +67,5 @@ PYEOF
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add src/constants.ts
-          git diff --staged --quiet || git commit -m "ci: update ${{ github.event.client_payload.component }} image digest
-
-          Component: ${{ github.event.client_payload.component }}
-          Digest:    ${{ github.event.client_payload.digest }}
-          Source:    ${{ github.event.client_payload.commit_sha }}"
+          git diff --staged --quiet && echo "No changes to commit" || git commit -m "ci: update ${{ github.event.client_payload.component }} image digest to ${{ github.event.client_payload.digest }}"
           git push
