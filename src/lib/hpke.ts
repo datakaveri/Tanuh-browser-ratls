@@ -101,6 +101,7 @@ export async function uploadChunked(
     data: Uint8Array,
     sha256hex: string,
     hpkeSession: Session,
+    extraHeaders?: Record<string, string>,
 ): Promise<Response> {
     const totalChunks = Math.max(1, Math.ceil(data.length / CHUNK_SIZE))
     const fileId      = crypto.randomUUID()
@@ -160,6 +161,7 @@ export async function uploadChunked(
         headers: {
             "Content-Type":         "application/octet-stream",
             "X-RATLS-Browser-HPKE": hpkeSession.browserPubB64Url(),
+            ...extraHeaders,
         },
         body,
     })

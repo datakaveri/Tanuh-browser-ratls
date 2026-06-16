@@ -12,19 +12,24 @@ import { verifyOIDCDebug } from "../../src/lib/oidc_debug"
 import { Session, uploadChunked } from "../../src/lib/hpke"
 import { b64urlEncode } from "../../src/lib/util/base64"
 import { zeroBuffer } from "../../src/lib/util/bytes"
-import { attestAndOpen } from "../../src/lib/index"
 import { EXPECTED_IMAGE_DIGEST } from "../../src/lib/constants"
 import type { AttestBundle } from "../../src/lib/types"
 
 const TEE_URL = process.env["TEE_URL"] ?? "https://35.253.174.203:8443"
 
+// Optional Keycloak Bearer token for auth-enabled TEE deployments.
+// Set KEYCLOAK_TOKEN env var when running against a TEE that has KEYCLOAK_JWKS_URL configured.
+// If unset, tests run without auth (works against auth-disabled TEE).
+const KEYCLOAK_TOKEN: string | undefined = process.env["KEYCLOAK_TOKEN"]
+const authHeaders = (): Record<string, string> =>
+    KEYCLOAK_TOKEN ? { "Authorization": `Bearer ${KEYCLOAK_TOKEN}` } : {}
+
 // Skip the whole suite if the TEE is unreachable — don't fail CI on network issues.
 // To force-run: TEE_URL=https://... npm run test:integration
 async function teeReachable(): Promise<boolean> {
     try {
-        const r = await fetch(TEE_URL + "/v1/attest", {
+        const r = await fetch(TEE_URL + "/healthz", {
             method:  "GET",
-            headers: { "X-RATLS-Nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
             signal:  AbortSignal.timeout(5000),
         })
         return r.status < 500
@@ -45,7 +50,7 @@ describe("E2E — debug enclave (dbgstat=enabled)", () => {
 
         // 2. Fetch bundle from live TEE
         const resp = await fetch(TEE_URL + "/v1/attest", {
-            headers: { "X-RATLS-Nonce": b64urlEncode(nonce) },
+            headers: { "X-RATLS-Nonce": b64urlEncode(nonce), ...authHeaders() },
             signal:  AbortSignal.timeout(10_000),
         })
         expect(resp.ok, `attest endpoint returned ${resp.status}`).toBe(true)
@@ -96,7 +101,7 @@ describe("E2E — debug enclave (dbgstat=enabled)", () => {
         const wrongNonce = crypto.getRandomValues(new Uint8Array(32))
 
         const resp = await fetch(TEE_URL + "/v1/attest", {
-            headers: { "X-RATLS-Nonce": b64urlEncode(nonce) },
+            headers: { "X-RATLS-Nonce": b64urlEncode(nonce), ...authHeaders() },
             signal:  AbortSignal.timeout(10_000),
         })
         expect(resp.ok).toBe(true)
@@ -120,7 +125,7 @@ describe("E2E — debug enclave (dbgstat=enabled)", () => {
         // 1. Attest (same as first test)
         const nonce = crypto.getRandomValues(new Uint8Array(32))
         const resp = await fetch(TEE_URL + "/v1/attest", {
-            headers: { "X-RATLS-Nonce": b64urlEncode(nonce) },
+            headers: { "X-RATLS-Nonce": b64urlEncode(nonce), ...authHeaders() },
             signal:  AbortSignal.timeout(10_000),
         })
         expect(resp.ok).toBe(true)
@@ -159,6 +164,7 @@ describe("E2E — debug enclave (dbgstat=enabled)", () => {
             headers: {
                 "Content-Type":         "application/json",
                 "X-RATLS-Browser-HPKE": hpkeSession.browserPubB64Url(),
+                ...authHeaders(),
             },
             body:   JSON.stringify(request),
             signal: AbortSignal.timeout(20_000),
@@ -184,12 +190,14 @@ describe("E2E — debug enclave (dbgstat=enabled)", () => {
         const modelUp = await uploadChunked(
             `${TEE_URL}/v1/upload/${jobId}/model`,
             tinyBytes, tinyHex, hpkeSession,
+            authHeaders(),
         )
         expect(modelUp.ok, `model upload returned ${modelUp.status}`).toBe(true)
 
         const weightsUp = await uploadChunked(
             `${TEE_URL}/v1/upload/${jobId}/weights`,
             tinyBytes, tinyHex, hpkeSession,
+            authHeaders(),
         )
         expect(weightsUp.ok, `weights upload returned ${weightsUp.status}`).toBe(true)
 
@@ -197,4 +205,24 @@ describe("E2E — debug enclave (dbgstat=enabled)", () => {
         console.log(`  final status: ${finalStatus.status}`)
         expect(typeof finalStatus.job_id === "string" || finalStatus.status !== undefined).toBe(true)
     }, 30_000)
+
+    it("rejects requests without a token when auth is enabled", async () => {
+        if (!await teeReachable()) {
+            console.warn(`TEE unreachable at ${TEE_URL} — skipping`)
+            return
+        }
+        if (!KEYCLOAK_TOKEN) {
+            console.warn("KEYCLOAK_TOKEN not set — skipping auth-rejection test")
+            return
+        }
+
+        const nonce = crypto.getRandomValues(new Uint8Array(32))
+        const r = await fetch(TEE_URL + "/v1/attest", {
+            headers: { "X-RATLS-Nonce": b64urlEncode(nonce) },  // no Authorization header
+            signal:  AbortSignal.timeout(10_000),
+        })
+        zeroBuffer(nonce)
+        expect(r.status, "expected 401 without token").toBe(401)
+        console.log("✓ Unauthenticated request correctly rejected with 401")
+    }, 15_000)
 })
