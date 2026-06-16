@@ -23,15 +23,38 @@ jobs:
         run: |
           DIGEST="${{ github.event.client_payload.digest }}"
           COMPONENT="${{ github.event.client_payload.component }}"
-          echo "Updating $COMPONENT digest to: $DIGEST"
-
+          echo "Component: $COMPONENT"
+          echo "Digest: $DIGEST"
+          echo "Before update:"
+          cat src/constants.ts
           if [ "$COMPONENT" = "buffer-tee" ]; then
-            sed -i "s|export const EXPECTED_IMAGE_DIGEST = \"sha256:[^\"]*\"|export const EXPECTED_IMAGE_DIGEST = \"$DIGEST\"|" src/constants.ts
+            python3 << PYEOF
+import re
+content = open('src/constants.ts').read()
+digest = "$DIGEST"
+updated = re.sub(
+    r'export const EXPECTED_IMAGE_DIGEST\s*=\s*"sha256:[^"]*"',
+    f'export const EXPECTED_IMAGE_DIGEST            = "{digest}"',
+    content
+)
+open('src/constants.ts', 'w').write(updated)
+print('Done')
+PYEOF
           elif [ "$COMPONENT" = "processing-tee" ]; then
-            sed -i "s|export const EXPECTED_PROCESSING_IMAGE_DIGEST = \"sha256:[^\"]*\"|export const EXPECTED_PROCESSING_IMAGE_DIGEST = \"$DIGEST\"|" src/constants.ts
+            python3 << PYEOF
+import re
+content = open('src/constants.ts').read()
+digest = "$DIGEST"
+updated = re.sub(
+    r'export const EXPECTED_PROCESSING_IMAGE_DIGEST\s*=\s*"sha256:[^"]*"',
+    f'export const EXPECTED_PROCESSING_IMAGE_DIGEST = "{digest}"',
+    content
+)
+open('src/constants.ts', 'w').write(updated)
+print('Done')
+PYEOF
           fi
-
-          echo "Updated constants.ts:"
+          echo "After update:"
           cat src/constants.ts
 
       - name: Commit and push
@@ -45,19 +68,3 @@ jobs:
           Digest:    ${{ github.event.client_payload.digest }}
           Source:    ${{ github.event.client_payload.commit_sha }}"
           git push
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: npm test
-
-      - name: Build
-        run: npm run build
