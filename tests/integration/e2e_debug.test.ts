@@ -2,6 +2,10 @@
 // Requires network access to TEE_URL. Set the TEE_URL env var or edit the default.
 // Run with: npm run test:integration
 
+// The VM uses a baked-in self-signed TLS cert — RATLS cryptographic attestation
+// provides the security guarantee, not TLS cert pinning.
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
+
 import { describe, it, expect } from "vitest"
 import { verifyBundle } from "../../src/lib/bundle"
 import { verifyOIDCDebug } from "../../src/lib/oidc_debug"
@@ -9,6 +13,7 @@ import { Session, uploadChunked } from "../../src/lib/hpke"
 import { b64urlEncode } from "../../src/lib/util/base64"
 import { zeroBuffer } from "../../src/lib/util/bytes"
 import { attestAndOpen } from "../../src/lib/index"
+import { EXPECTED_IMAGE_DIGEST } from "../../src/lib/constants"
 import type { AttestBundle } from "../../src/lib/types"
 
 const TEE_URL = process.env["TEE_URL"] ?? "https://35.253.174.203:8443"
@@ -64,7 +69,7 @@ describe("E2E — debug enclave (dbgstat=enabled)", () => {
         expect(session.verifiedAt).toBeGreaterThan(0)
         expect(session.oidc.swname).toBe("CONFIDENTIAL_SPACE")
         expect(session.oidc.hwmodel).toMatch(/^GCP_AMD_SEV/)
-        expect(session.oidc.submods.container.image_digest).toBe("sha256:9a09b2dd1037f4bf150d10281467142142655da09487cabb2ff5af0a122cf05e")
+        expect(session.oidc.submods.container.image_digest).toBe(EXPECTED_IMAGE_DIGEST)
 
         // 4. Build HPKE session with the verified enclave pubkey
         const hpkeSession = new Session(session.hpkePub)
