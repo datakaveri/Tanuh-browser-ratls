@@ -28,6 +28,7 @@ export type StepName =
   | "submit_meta"
   | "upload_model"
   | "upload_weights"
+  | "upload_python"
   | "done"
   | "error"
 
@@ -38,6 +39,7 @@ export interface TransferOptions {
   teeUrl:         string
   modelFile:      File
   weightsFile:    File
+  pythonFile?:    File      // optional Python script uploaded after weights
   datasetId:      1 | 2 | 3
   keycloakToken?: string    // forwarded to attestAndOpen and all subsequent TEE requests
   onStep?:        (step: StepName, detail: string) => void
@@ -56,6 +58,7 @@ export interface SubmitOptions {
   session:     OpenedSession
   modelFile:   File
   weightsFile: File
+  pythonFile?: File         // optional Python script uploaded after weights
   datasetId:   1 | 2 | 3
   onStep?:     (step: UploadStepName, detail: string) => void
 }
@@ -68,7 +71,7 @@ export interface SubmitResult {
 // submitOnnxModel handles the post-attestation upload steps using an
 // already-opened session returned by attestAndOpen().
 export async function submitOnnxModel(opts: SubmitOptions): Promise<SubmitResult> {
-  const { session, modelFile, weightsFile, datasetId, onStep = () => {} } = opts
+  const { session, modelFile, weightsFile, pythonFile, datasetId, onStep = () => {} } = opts
   const t0 = performance.now()
 
   // ── 1. Streaming SHA-256 (16 MB at a time, ~16 MB peak) ──────────────────
@@ -77,6 +80,13 @@ export async function submitOnnxModel(opts: SubmitOptions): Promise<SubmitResult
 
   onStep("model_hash", `Hashing weights (${fmt(weightsFile.size)})…`)
   const weightsSHA256 = await computeSHA256Streaming(weightsFile)
+
+  let pythonSHA256: string | undefined
+  if (pythonFile) {
+    onStep("model_hash", `Hashing Python script (${fmt(pythonFile.size)})…`)
+    pythonSHA256 = await computeSHA256Streaming(pythonFile)
+  }
+
   onStep("model_hash", "SHA-256 computed")
 
   // ── 2. HPKE-encrypt tiny metadata → POST /v1/submit ──────────────────────
@@ -87,6 +97,7 @@ export async function submitOnnxModel(opts: SubmitOptions): Promise<SubmitResult
       dataset_id:     datasetId,
       model_sha256:   modelSHA256,
       weights_sha256: weightsSHA256,
+      ...(pythonSHA256 !== undefined ? { python_sha256: pythonSHA256 } : {}),
     })
   } catch (err) {
     onStep("error", `Metadata submit failed: ${err instanceof Error ? err.message : err}`)
@@ -124,6 +135,21 @@ export async function submitOnnxModel(opts: SubmitOptions): Promise<SubmitResult
     throw err
   }
 
+  if (pythonFile && pythonSHA256) {
+    onStep("upload_python", `Encrypting + uploading Python script (${fmt(pythonFile.size)})…`)
+    try {
+      await session.uploadEncrypted(
+        `/v1/upload/${jobId}/python`,
+        pythonFile,
+        pythonSHA256,
+        pct => onStep("upload_python", `${pct}%`),
+      )
+    } catch (err) {
+      onStep("error", `Python upload failed: ${err instanceof Error ? err.message : err}`)
+      throw err
+    }
+  }
+
   const elapsedMs = Math.round(performance.now() - t0)
   onStep("done", `Job queued in ${elapsedMs}ms`)
   return { jobId, elapsedMs }
@@ -134,7 +160,7 @@ export async function submitOnnxModel(opts: SubmitOptions): Promise<SubmitResult
 // For a two-step flow (show attestation report before uploading),
 // call attestAndOpen() then submitOnnxModel() separately.
 export async function transferOnnxModel(opts: TransferOptions): Promise<TransferResult> {
-  const { teeUrl, modelFile, weightsFile, datasetId, keycloakToken, onStep = () => {} } = opts
+  const { teeUrl, modelFile, weightsFile, pythonFile, datasetId, keycloakToken, onStep = () => {} } = opts
   const t0 = performance.now()
 
   // ── 1. RA-TLS attestation ─────────────────────────────────────────────────
@@ -158,6 +184,7 @@ export async function transferOnnxModel(opts: TransferOptions): Promise<Transfer
     session,
     modelFile,
     weightsFile,
+    ...(pythonFile !== undefined ? { pythonFile } : {}),
     datasetId,
     onStep: onStep as (step: UploadStepName, detail: string) => void,
   })

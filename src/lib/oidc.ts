@@ -15,9 +15,11 @@ export interface CSOidcPayload {
     iat:       number
     swname:    string
     hwmodel:   string
+    secboot?:  boolean
+    dbgstat?:  string
     eat_nonce: string | string[]
     submods: {
-        container: { image_digest: string }
+        container: { image_digest: string; image_reference?: string }
         confidential_space: { support_attributes?: string[] }
     }
 }
@@ -41,8 +43,13 @@ export async function verifyOIDC(
         throw new Error("hwmodel not GCP_AMD_SEV")
     if (p.submods?.container?.image_digest !== EXPECTED_IMAGE_DIGEST)
         throw new Error("image_digest mismatch")
-    if (!p.submods?.confidential_space?.support_attributes?.includes("STABLE"))
-        throw new Error("support_attributes does not include STABLE")
+    // support_attributes is a GCP SLA-tier label (STABLE/LATEST/…), not a security property.
+    // Some GCP regions omit it entirely. We accept absent, STABLE, or LATEST; reject anything
+    // else (e.g. NON_PRODUCTION) to guard against debug-mode TEEs.
+    const attrs: string[] = Array.isArray(p.submods?.confidential_space?.support_attributes)
+        ? p.submods.confidential_space.support_attributes : []
+    if (attrs.length > 0 && !attrs.includes("STABLE") && !attrs.includes("LATEST"))
+        throw new Error(`support_attributes unexpected: ${JSON.stringify(attrs)}`)
 
     const now = Math.floor(Date.now() / 1000)
     if (!p.exp || p.exp <= now)        throw new Error("token expired")

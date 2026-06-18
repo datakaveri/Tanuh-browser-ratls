@@ -1,7 +1,7 @@
 import { defineConfig } from "vite"
 import react from "@vitejs/plugin-react"
 
-const TEE_URL = process.env.VITE_TEE_URL ?? "https://8.35.197.50:8443"
+const TEE_URL = process.env.VITE_TEE_URL ?? "https://34.75.210.33:8443"
 
 export default defineConfig({
     plugins: [react()],
