@@ -97,7 +97,7 @@ export async function submitOnnxModel(opts: SubmitOptions): Promise<SubmitResult
       dataset_id:     datasetId,
       model_sha256:   modelSHA256,
       weights_sha256: weightsSHA256,
-      ...(pythonSHA256 !== undefined ? { python_sha256: pythonSHA256 } : {}),
+      ...(pythonSHA256 !== undefined ? { preprocessing_sha256: pythonSHA256 } : {}),
     })
   } catch (err) {
     onStep("error", `Metadata submit failed: ${err instanceof Error ? err.message : err}`)
@@ -139,7 +139,7 @@ export async function submitOnnxModel(opts: SubmitOptions): Promise<SubmitResult
     onStep("upload_python", `Encrypting + uploading Python script (${fmt(pythonFile.size)})…`)
     try {
       await session.uploadEncrypted(
-        `/v1/upload/${jobId}/python`,
+        `/v1/upload/${jobId}/preprocessing`,
         pythonFile,
         pythonSHA256,
         pct => onStep("upload_python", `${pct}%`),
