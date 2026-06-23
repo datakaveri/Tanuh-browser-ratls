@@ -121,13 +121,14 @@ export async function attestAndOpen(opts: AttestOptions): Promise<OpenedSession>
             )
             const { enc, wrappedKey } = await hpkeSession.sealSymmetricKey(rawKey)
 
-            const fileNonce = crypto.getRandomValues(new Uint8Array(8))
+            // 12-byte base IV; chunk i uses baseIV + i (96-bit big-endian increment).
+            const baseIV = crypto.getRandomValues(new Uint8Array(12))
 
             const header      = JSON.stringify({
                 file_id:          fileId,
                 enc,
                 wrapped_key:      wrappedKey,
-                file_nonce:       b64encode(fileNonce),
+                base_iv:          b64encode(baseIV),
                 total_chunks:     totalChunks,
                 plaintext_sha256: sha256hex,
             })
@@ -146,16 +147,14 @@ export async function attestAndOpen(opts: AttestOptions): Promise<OpenedSession>
             dv.setUint32(off, headerBytes.length, false); off += 4
             body.set(headerBytes, off);                   off += headerBytes.length
 
-            // Encrypt and write each chunk
-            const iv = new Uint8Array(12)
-            iv.set(fileNonce, 0)
+            // Encrypt and write each chunk; IV starts at baseIV and increments by 1 each chunk
+            const iv = new Uint8Array(baseIV)
 
             for (let i = 0; i < totalChunks; i++) {
                 const plaintext = await file.slice(
                     i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE,
                 ).arrayBuffer()
 
-                new DataView(iv.buffer).setUint32(8, i, false)
                 const aad = new TextEncoder().encode(`${i}:${totalChunks}:${fileId}`)
 
                 const ct = new Uint8Array(await crypto.subtle.encrypt(
@@ -168,6 +167,8 @@ export async function attestAndOpen(opts: AttestOptions): Promise<OpenedSession>
                 body.set(ct, off);                   off += ct.length
 
                 onProgress?.(Math.round((i + 1) / totalChunks * 100))
+                // increment IV by 1 (big-endian, with carry) for the next chunk
+                for (let j = 11; j >= 0; j--) { if (++iv[j] !== 0) break }
             }
 
             const url = opts.attestUrl ? new URL(path, opts.attestUrl).toString() : path

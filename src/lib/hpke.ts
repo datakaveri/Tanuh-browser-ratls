@@ -113,13 +113,14 @@ export async function uploadChunked(
     )
     const { enc, wrappedKey } = await hpkeSession.sealSymmetricKey(rawKey)
 
-    const fileNonce = crypto.getRandomValues(new Uint8Array(8))
+    // 12-byte base IV; chunk i uses baseIV + i (96-bit big-endian increment).
+    const baseIV = crypto.getRandomValues(new Uint8Array(12))
 
     const header      = JSON.stringify({
         file_id:      fileId,
         enc,
         wrapped_key:  wrappedKey,
-        file_nonce:   b64encode(fileNonce),
+        base_iv:      b64encode(baseIV),
         total_chunks: totalChunks,
         plaintext_sha256: sha256hex,
     })
@@ -136,12 +137,10 @@ export async function uploadChunked(
 
     frames.push(u32(headerBytes.length), headerBytes)
 
-    const iv = new Uint8Array(12)
-    iv.set(fileNonce, 0)
+    const iv = new Uint8Array(baseIV)  // mutable; chunk 0 starts at baseIV
 
     for (let i = 0; i < totalChunks; i++) {
         const plaintext = data.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE)
-        new DataView(iv.buffer).setUint32(8, i, false)
         const aad = new TextEncoder().encode(`${i}:${totalChunks}:${fileId}`)
         const ct  = new Uint8Array(await crypto.subtle.encrypt(
             { name: "AES-GCM", iv: iv.slice(), additionalData: aad, tagLength: 128 },
@@ -149,6 +148,8 @@ export async function uploadChunked(
             plaintext,
         ))
         frames.push(u32(ct.length), ct)
+        // increment IV by 1 (big-endian, with carry) for the next chunk
+        for (let j = 11; j >= 0; j--) { if (++iv[j] !== 0) break }
     }
 
     const bodyLen  = frames.reduce((s, f) => s + f.length, 0)
