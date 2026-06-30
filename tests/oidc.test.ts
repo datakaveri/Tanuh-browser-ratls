@@ -52,7 +52,7 @@ function makeValidPayload(spki: Uint8Array, hpkePub: Uint8Array) {
         exp:       NOW + 3600,
         iat:       NOW - 60,
         swname:    "CONFIDENTIAL_SPACE",
-        hwmodel:   "GCP_AMD_SEV_SNP",
+        hwmodel:   "GCP_INTEL_TDX",
         eat_nonce: [nonce0, nonce1],
         submods: {
             container: { image_digest: TEST_IMAGE_DIGEST },
@@ -96,7 +96,7 @@ describe("verifyOIDC", () => {
         vi.mocked(jwtVerify).mockResolvedValue({ payload } as never)
 
         await expect(verifyOIDC("token", spki, hpkePub))
-            .rejects.toThrow("hwmodel not GCP_AMD_SEV")
+            .rejects.toThrow("hwmodel not GCP_INTEL_TDX")
     })
 
     it("rejects wrong image_digest", async () => {

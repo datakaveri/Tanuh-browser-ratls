@@ -39,8 +39,8 @@ export async function verifyOIDC(
     // Step 2: CS-specific claim checks
     if (p.swname !== "CONFIDENTIAL_SPACE")
         throw new Error("swname not CONFIDENTIAL_SPACE")
-    if (!p.hwmodel?.startsWith("GCP_AMD_SEV"))
-        throw new Error("hwmodel not GCP_AMD_SEV")
+    if (!p.hwmodel?.startsWith("GCP_INTEL_TDX"))
+        throw new Error("hwmodel not GCP_INTEL_TDX")
     if (p.submods?.container?.image_digest !== EXPECTED_IMAGE_DIGEST)
         throw new Error("image_digest mismatch")
     // support_attributes is a GCP SLA-tier label (STABLE/LATEST/…), not a security property.

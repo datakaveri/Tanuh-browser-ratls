@@ -73,7 +73,7 @@ describe("E2E — debug enclave (dbgstat=enabled)", () => {
         expect(session.hpkePub.some(b => b !== 0)).toBe(true)
         expect(session.verifiedAt).toBeGreaterThan(0)
         expect(session.oidc.swname).toBe("CONFIDENTIAL_SPACE")
-        expect(session.oidc.hwmodel).toMatch(/^GCP_AMD_SEV/)
+        expect(session.oidc.hwmodel).toMatch(/^GCP_INTEL_TDX/)
         expect(session.oidc.submods.container.image_digest).toBe(EXPECTED_IMAGE_DIGEST)
 
         // 4. Build HPKE session with the verified enclave pubkey
@@ -137,7 +137,7 @@ describe("E2E — debug enclave (dbgstat=enabled)", () => {
         } finally {
             zeroBuffer(nonce)
         }
-        expect(session.oidc.hwmodel).toMatch(/^GCP_AMD_SEV/)
+        expect(session.oidc.hwmodel).toMatch(/^GCP_INTEL_TDX/)
 
         // 2. Open HPKE session using the VERIFIED enclave pub — same key as the header
         const hpkeSession = new Session(session.hpkePub)
